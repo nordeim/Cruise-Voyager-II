@@ -1,14 +1,20 @@
-import { defineConfig } from "drizzle-kit";
+import type { Config } from 'drizzle-kit';
+import dotenv from 'dotenv';
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+dotenv.config();
 
-export default defineConfig({
-  out: "./migrations",
-  schema: "./shared/schema.ts",
-  dialect: "postgresql",
+const url = new URL(process.env.DATABASE_URL!);
+
+export default {
+  schema: './shared/schema.ts',
+  out: './server/migrations',
+  dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    host: url.hostname,
+    port: parseInt(url.port || '5432'),
+    user: url.username,
+    password: url.password,
+    database: url.pathname.slice(1),
+    ssl: url.searchParams.get('sslmode') === 'require',
   },
-});
+} satisfies Config;

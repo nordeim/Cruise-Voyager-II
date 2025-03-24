@@ -112,7 +112,7 @@ export default function CruiseCard({
                   asChild 
                   className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white font-bold px-6 py-2 text-base shadow-md"
                 >
-                  <Link href={`/booking/${id}`}>Book Now</Link>
+                  <Link href={`/cruises/${id}`}>Book Now</Link>
                 </Button>
               </div>
               <div className="mt-2">

@@ -11,8 +11,26 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   firstName: text("first_name"),
   lastName: text("last_name"),
+  emailVerified: boolean("email_verified").default(false).notNull(),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+});
+
+// Email Verification Schema
+export const emailVerification = pgTable("email_verification", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Password Reset Schema
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  token: text("token").notNull().unique(),
+  expires: timestamp("expires").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Cruise Schema
@@ -67,9 +85,28 @@ export const reviews = pgTable("reviews", {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   bookings: many(bookings),
   reviews: many(reviews),
+  emailVerification: one(emailVerification, {
+    fields: [users.id],
+    references: [emailVerification.userId],
+  }),
+  passwordResetTokens: many(passwordResetTokens),
+}));
+
+export const emailVerificationRelations = relations(emailVerification, ({ one }) => ({
+  user: one(users, {
+    fields: [emailVerification.userId],
+    references: [users.id],
+  }),
+}));
+
+export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
 }));
 
 export const cruisesRelations = relations(cruises, ({ many }) => ({
@@ -105,8 +142,19 @@ export const insertUserSchema = createInsertSchema(users, {
   password: z.string().min(8, "Password must be at least 8 characters"),
 }).omit({
   id: true,
+  emailVerified: true,
   stripeCustomerId: true,
   stripeSubscriptionId: true,
+});
+
+export const insertEmailVerificationSchema = createInsertSchema(emailVerification).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({
+  id: true,
+  createdAt: true,
 });
 
 export const insertCruiseSchema = createInsertSchema(cruises).omit({
@@ -139,6 +187,12 @@ export const insertReviewSchema = createInsertSchema(reviews).omit({
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type EmailVerification = typeof emailVerification.$inferSelect;
+export type InsertEmailVerification = z.infer<typeof insertEmailVerificationSchema>;
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
 
 export type Cruise = typeof cruises.$inferSelect;
 export type InsertCruise = z.infer<typeof insertCruiseSchema>;

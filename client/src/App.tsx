@@ -10,7 +10,6 @@ import Footer from "@/components/layout/footer";
 import Home from "@/pages/home";
 import Cruises from "@/pages/cruises";
 import CruiseDetails from "@/pages/cruise-details";
-import Booking from "@/pages/booking";
 import Checkout from "@/pages/checkout";
 import BookingConfirmation from "@/pages/booking-confirmation";
 import Profile from "@/pages/profile";
@@ -23,7 +22,6 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/cruises" component={Cruises} />
       <Route path="/cruises/:id" component={CruiseDetails} />
-      <Route path="/booking/:id" component={Booking} />
       <Route path="/checkout/:bookingId" component={Checkout} />
       <Route path="/booking-confirmation/:id" component={BookingConfirmation} />
       <Route path="/profile" component={Profile} />

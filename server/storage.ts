@@ -2,8 +2,13 @@ import {
   users, User, InsertUser, 
   cruises, Cruise, InsertCruise,
   bookings, Booking, InsertBooking,
-  reviews, Review, InsertReview
+  reviews, Review, InsertReview,
+  emailVerification, EmailVerification, InsertEmailVerification,
+  passwordResetTokens, PasswordResetToken, InsertPasswordResetToken
 } from "@shared/schema";
+import { and, gte, lte, like, desc, sql, isNull, asc, inArray, eq, SQL } from "drizzle-orm";
+import { PgSelectQueryBuilder } from "drizzle-orm/pg-core";
+import { db } from "./db";
 
 export interface IStorage {
   // User operations
@@ -207,7 +212,25 @@ export class MemStorage implements IStorage {
 
   async createCruise(insertCruise: InsertCruise): Promise<Cruise> {
     const id = this.cruiseIdCounter++;
-    const cruise: Cruise = { ...insertCruise, id };
+    const cruise: Cruise = {
+      id,
+      title: insertCruise.title,
+      description: insertCruise.description,
+      destination: insertCruise.destination,
+      imageUrl: insertCruise.imageUrl,
+      cruiseLine: insertCruise.cruiseLine,
+      shipName: insertCruise.shipName,
+      departurePort: insertCruise.departurePort,
+      departureDate: insertCruise.departureDate,
+      returnDate: insertCruise.returnDate,
+      duration: insertCruise.duration,
+      pricePerPerson: insertCruise.pricePerPerson,
+      salePrice: insertCruise.salePrice || null,
+      isBestSeller: insertCruise.isBestSeller || false,
+      isSpecialOffer: insertCruise.isSpecialOffer || false,
+      amenities: insertCruise.amenities || [],
+      cabinTypes: insertCruise.cabinTypes || []
+    };
     this.cruises.set(id, cruise);
     return cruise;
   }
@@ -252,18 +275,28 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createBooking(insertBooking: InsertBooking): Promise<Booking> {
+  async createBooking(booking: InsertBooking): Promise<Booking> {
     const id = this.bookingIdCounter++;
-    const booking: Booking = { 
-      ...insertBooking, 
-      id, 
+    const newBooking: Booking = {
+      id,
       bookingDate: new Date(),
-      paymentStatus: "pending",
+      paymentStatus: 'pending',
       stripePaymentIntentId: null,
-      stripeClientSecret: null
+      stripeClientSecret: null,
+      specialRequests: booking.specialRequests || null,
+      contactPhone: booking.contactPhone || null,
+      guestDetails: booking.passengers || null,
+      userId: booking.userId,
+      cruiseId: booking.cruiseId,
+      departureDate: booking.departureDate,
+      returnDate: booking.returnDate,
+      numberOfGuests: booking.numberOfGuests,
+      cabinType: booking.cabinType,
+      totalPrice: booking.totalPrice,
+      contactEmail: booking.contactEmail
     };
-    this.bookings.set(id, booking);
-    return booking;
+    this.bookings.set(id, newBooking);
+    return newBooking;
   }
   
   async updateBookingPaymentStatus(id: number, status: string): Promise<Booking> {
@@ -482,10 +515,9 @@ export class DatabaseStorage implements IStorage {
   // Cruise operations
   async getCruises(filters?: CruiseFilters): Promise<Cruise[]> {
     let query = db.select().from(cruises);
+    const conditions: SQL<unknown>[] = [];
     
     if (filters) {
-      const conditions = [];
-      
       if (filters.destination) {
         conditions.push(like(cruises.destination, `%${filters.destination}%`));
       }
@@ -531,28 +563,32 @@ export class DatabaseStorage implements IStorage {
         conditions.push(inArray(cruises.cruiseLine, filters.cruiseLine));
       }
       
-      // SQL array conditions need special handling with SQL functions
       if (filters.amenities && filters.amenities.length > 0) {
         const amenityConditions = filters.amenities.map(amenity => 
-          sql`${cruises.amenities} @> array[${amenity}]::text[]`
+          sql`${cruises.amenities}::text[] @> array[${amenity}]::text[]`
         );
         conditions.push(sql`(${sql.join(amenityConditions, sql` OR `)})`);
       }
       
       if (filters.cabinTypes && filters.cabinTypes.length > 0) {
         const cabinConditions = filters.cabinTypes.map(cabinType => 
-          sql`${cruises.cabinTypes} @> array[${cabinType}]::text[]`
+          sql`${cruises.cabinTypes}::text[] @> array[${cabinType}]::text[]`
         );
         conditions.push(sql`(${sql.join(cabinConditions, sql` OR `)})`);
       }
       
-      // Apply all conditions if there are any
       if (conditions.length > 0) {
         query = query.where(sql.join(conditions, sql` AND `));
       }
     }
     
-    return await query;
+    const results = await query.orderBy(
+      desc(cruises.isBestSeller),
+      desc(cruises.isSpecialOffer),
+      asc(cruises.departureDate)
+    );
+    
+    return results;
   }
 
   async getCruise(id: number): Promise<Cruise | undefined> {
@@ -561,7 +597,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCruise(cruise: InsertCruise): Promise<Cruise> {
-    const [newCruise] = await db.insert(cruises).values(cruise).returning();
+    const id = this.cruiseIdCounter++;
+    const newCruise: Cruise = {
+      id,
+      title: cruise.title,
+      description: cruise.description,
+      destination: cruise.destination,
+      imageUrl: cruise.imageUrl,
+      cruiseLine: cruise.cruiseLine,
+      shipName: cruise.shipName,
+      departurePort: cruise.departurePort,
+      departureDate: cruise.departureDate,
+      returnDate: cruise.returnDate,
+      duration: cruise.duration,
+      pricePerPerson: cruise.pricePerPerson,
+      salePrice: cruise.salePrice || null,
+      isBestSeller: cruise.isBestSeller || false,
+      isSpecialOffer: cruise.isSpecialOffer || false,
+      amenities: cruise.amenities || [],
+      cabinTypes: cruise.cabinTypes || []
+    };
+    this.cruises.set(id, newCruise);
     return newCruise;
   }
   
@@ -683,22 +739,27 @@ export class DatabaseStorage implements IStorage {
     return newReview;
   }
   
-  async getCruiseAverageRating(cruiseId: number): Promise<number> {
+  async getCruiseAverageRating(cruiseId: number): Promise<number | null> {
     const result = await db
-      .select({ averageRating: sql<number>`AVG(${reviews.rating})` })
+      .select({ 
+        avgRating: sql<number>`AVG(${reviews.rating})::float` 
+      })
       .from(reviews)
-      .where(eq(reviews.cruiseId, cruiseId));
-    
-    return result[0]?.averageRating || 0;
+      .where(eq(reviews.cruiseId, cruiseId))
+      .groupBy(reviews.cruiseId);
+
+    return result[0]?.avgRating ?? null;
   }
   
   async getReviewCount(cruiseId: number): Promise<number> {
     const result = await db
-      .select({ count: sql<number>`COUNT(*)` })
+      .select({ 
+        count: sql<number>`COUNT(*)::int` 
+      })
       .from(reviews)
       .where(eq(reviews.cruiseId, cruiseId));
-    
-    return result[0]?.count || 0;
+
+    return result[0]?.count ?? 0;
   }
 }
 

@@ -29,6 +29,7 @@ export default function CruiseDetails() {
   const { toast } = useToast();
   const { user, isAuthenticated } = useAuth();
   const [isSaved, setIsSaved] = useState(false);
+  const [isBooking, setIsBooking] = useState(false);
 
   // Fetch cruise details
   const { 
@@ -37,6 +38,15 @@ export default function CruiseDetails() {
     isError
   } = useQuery({
     queryKey: [`/api/cruises/${id}`],
+    queryFn: async () => {
+      const response = await fetch(`/api/cruises/${id}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch cruise details');
+      }
+      return response.json();
+    }
   });
 
   // Fetch cruise reviews
@@ -46,6 +56,15 @@ export default function CruiseDetails() {
     refetch: refetchReviews
   } = useQuery({
     queryKey: [`/api/cruises/${id}/reviews`],
+    queryFn: async () => {
+      const response = await fetch(`/api/cruises/${id}/reviews`, {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch reviews');
+      }
+      return response.json();
+    }
   });
 
   // Add review mutation
@@ -81,6 +100,93 @@ export default function CruiseDetails() {
     },
   });
 
+  // Create booking mutation
+  const createBookingMutation = useMutation({
+    mutationFn: async () => {
+      if (!isAuthenticated) {
+        throw new Error('Please log in to book a cruise');
+      }
+      if (!cruise) {
+        throw new Error('Cruise details not available');
+      }
+      if (!user?.email) {
+        throw new Error('User email not available');
+      }
+
+      // Default to 2 passengers since price is based on double occupancy
+      const numberOfGuests = 2;
+      const cabinType = cruise.cabinTypes[0] || 'interior'; // Default to first available cabin type
+      const pricePerPerson = cruise.salePrice || cruise.pricePerPerson;
+      const totalPrice = pricePerPerson * numberOfGuests;
+
+      // Default date for dateOfBirth (must be a valid date string)
+      const defaultDateOfBirth = '1990-01-01';
+
+      // Parse dates to ensure they're in the correct format
+      const departureDate = new Date(cruise.departureDate);
+      const returnDate = new Date(cruise.returnDate);
+
+      // Validate dates
+      if (isNaN(departureDate.getTime()) || isNaN(returnDate.getTime())) {
+        throw new Error('Invalid cruise dates');
+      }
+
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          cruiseId: parseInt(id || '0'),
+          userId: user?.id,
+          numberOfGuests,
+          cabinType,
+          pricePerPerson,
+          totalPrice,
+          departureDate,
+          returnDate,
+          contactEmail: user.email,
+          passengers: [
+            {
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+              email: user.email,
+              dateOfBirth: defaultDateOfBirth,
+              passportNumber: 'TBD',
+              nationality: 'TBD'
+            },
+            {
+              firstName: 'Guest',
+              lastName: 'TBD',
+              email: user.email,
+              dateOfBirth: defaultDateOfBirth,
+              passportNumber: 'TBD',
+              nationality: 'TBD'
+            }
+          ]
+        }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to create booking');
+      }
+      return response.json();
+    },
+    onSuccess: (data) => {
+      window.location.href = `/checkout/${data.id}`;
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Booking Failed",
+        description: error.message || "Please try again later",
+        variant: "destructive",
+      });
+      setIsBooking(false);
+    },
+  });
+
   // Create formatted dates
   const formatDate = (dateString: string) => {
     return format(new Date(dateString), 'MMMM d, yyyy');
@@ -105,6 +211,11 @@ export default function CruiseDetails() {
 
   // Check if user has already reviewed this cruise
   const hasUserReviewed = reviews?.some((review: any) => review.userId === user?.id);
+
+  const handleBooking = () => {
+    setIsBooking(true);
+    createBookingMutation.mutate();
+  };
 
   // Redirect if cruise not found
   useEffect(() => {
@@ -281,10 +392,12 @@ export default function CruiseDetails() {
                   </div>
                 </div>
                 
-                <Button asChild className="w-full bg-secondary hover:bg-secondary-dark text-white font-semibold text-lg py-6">
-                  <Link href={`/booking/${cruise.id}`}>
-                    Book This Cruise
-                  </Link>
+                <Button 
+                  onClick={handleBooking}
+                  disabled={isBooking || !isAuthenticated}
+                  className="w-full bg-secondary hover:bg-secondary-dark text-white font-semibold text-lg py-6"
+                >
+                  {isBooking ? "Processing..." : isAuthenticated ? "Book This Cruise" : "Login to Book"}
                 </Button>
               </div>
             </div>

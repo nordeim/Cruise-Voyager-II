@@ -2,7 +2,28 @@ import { Booking, User, Cruise } from "@shared/schema";
 import nodemailer from "nodemailer";
 
 // Configure email transporter
-let transporter: nodemailer.Transporter | null = null;
+// For development, we'll use a test account
+// In production, you would use real SMTP credentials
+let transporter: nodemailer.Transporter;
+
+async function createTestAccount() {
+  // Generate test SMTP service account from ethereal.email
+  const testAccount = await nodemailer.createTestAccount();
+
+  // Create reusable transporter object using the default SMTP transport
+  transporter = nodemailer.createTransport({
+    host: "smtp.ethereal.email",
+    port: 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+      user: testAccount.user,
+      pass: testAccount.pass,
+    },
+  });
+}
+
+// Initialize the test account
+createTestAccount().catch(console.error);
 
 // Initialize email transporter based on environment
 function getTransporter() {
@@ -93,4 +114,71 @@ export async function sendBookingConfirmation(booking: Booking, cruise: Cruise, 
   
   // Send the email
   await transport.sendMail(emailContent);
+}
+
+export async function sendVerificationEmail(email: string, token: string): Promise<void> {
+  // Ensure transporter is initialized
+  if (!transporter) {
+    await createTestAccount();
+  }
+
+  const verificationLink = `http://localhost:5173/verify-email?token=${token}`;
+
+  const mailOptions = {
+    from: '"Cruise Voyager II" <noreply@cruisevoyager.com>',
+    to: email,
+    subject: "Verify your email address",
+    text: `Welcome to Cruise Voyager II!\n\nPlease verify your email address by clicking on the following link:\n${verificationLink}\n\nThis link will expire in 24 hours.\n\nIf you did not create an account, please ignore this email.`,
+    html: `
+      <h1>Welcome to Cruise Voyager II!</h1>
+      <p>Please verify your email address by clicking on the following link:</p>
+      <p><a href="${verificationLink}">${verificationLink}</a></p>
+      <p>This link will expire in 24 hours.</p>
+      <p>If you did not create an account, please ignore this email.</p>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Verification email sent:", info.messageId);
+    // For development: Log preview URL
+    console.log("Preview URL:", nodemailer.getTestMessageUrl(info));
+  } catch (error) {
+    console.error("Error sending verification email:", error);
+    throw new Error("Failed to send verification email");
+  }
+}
+
+export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
+  // Ensure transporter is initialized
+  if (!transporter) {
+    await createTestAccount();
+  }
+
+  const resetLink = `http://localhost:5173/reset-password?token=${token}`;
+
+  const mailOptions = {
+    from: '"Cruise Voyager II" <noreply@cruisevoyager.com>',
+    to: email,
+    subject: "Reset your password",
+    text: `You have requested to reset your password.\n\nPlease click on the following link to reset your password:\n${resetLink}\n\nThis link will expire in 1 hour.\n\nIf you did not request a password reset, please ignore this email.`,
+    html: `
+      <h1>Reset Your Password</h1>
+      <p>You have requested to reset your password.</p>
+      <p>Please click on the following link to reset your password:</p>
+      <p><a href="${resetLink}">${resetLink}</a></p>
+      <p>This link will expire in 1 hour.</p>
+      <p>If you did not request a password reset, please ignore this email.</p>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Password reset email sent:", info.messageId);
+    // For development: Log preview URL
+    console.log("Preview URL:", nodemailer.getTestMessageUrl(info));
+  } catch (error) {
+    console.error("Error sending password reset email:", error);
+    throw new Error("Failed to send password reset email");
+  }
 }
